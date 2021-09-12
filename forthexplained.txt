@@ -1,8 +1,0 @@
-The code runs in a core loop with an instruction pointer pointing to the next word to execute. When the word is read if it's a function definion (colon/:) then the current address of the instruction pointer, which points to the 
-current code being run is pushed to the return stack. Compile mode is enabled and all words read are treated as instructions that are pushed into the data section of an execution token, which is then inserted into the dictionary,
-with the void function set to jump to the data section of the current execution token, which is always going to be the function call token itself. Macros are words that are run when compiling a function, the most notable of which is 
-the function end word (semicolon/;) which ends compilation and pops the address of the initial function call location off the
-stack, then jumps to it + 1, continuing execution after the function call. 
-
-If it's not a function definition then it's looked up in the dictionary (a linked list of execution tokens) and executed, failing which it is tried as an int
-and if that fails throwing an error.

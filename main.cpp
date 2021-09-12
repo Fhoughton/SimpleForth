@@ -7,15 +7,17 @@
 #include <cctype>
 #include <algorithm>
 
+typedef ptrdiff_t cell_t; //we use a global typedef for portability, ptrdiff_t instead of size_t as negatives wanted
+
 struct xt {
 	std::string name;
 	xt *prev;
 	std::vector<xt> data;
-	size_t val;
+	cell_t val;
 	void (*code)(void);
 };
 
-std::stack<size_t> ds;
+std::stack<cell_t> ds;
 
 std::vector<xt> code;
 std::string src;
@@ -29,14 +31,12 @@ xt *macros;
 
 bool compile_mode = false;
 
-//MAYBE HAVE CODE STREAM AND WHEN AT END READ USER INPUT AND
-//APPEND NEWLY COMPILED CODE TO STREAM THEN EXECUTE
 
 std::vector<std::string> str_split(std::string str) {
-	std::string buf;                 // Have a buffer string
-	std::stringstream ss(str);       // Insert the string into a stream
+	std::string buf;                 // have a buffer string
+	std::stringstream ss(str);       // insert the string into a stream
 
-	std::vector<std::string> tokens; // Create vector to hold our words
+	std::vector<std::string> tokens; // create vector to hold our words
 
 	while (ss >> buf) {
 		tokens.push_back(buf);
@@ -54,7 +54,7 @@ xt *find(xt *dict, std::string word) {
 std::string get_word() {
 	std::string w = "";
 
-	//if it's a string read the the whole thing
+	// if it's a string read the the whole thing
 	if (*src_pos == '"' && *src_pos != '\0')
 	{
 		w += '"';
@@ -67,14 +67,15 @@ std::string get_word() {
 	}
 	else
 	{
-		//otherwise just read until we find a space
+		// otherwise just read until we find a space
 		while (!(isspace(*src_pos)) && *src_pos != '\0') {
 			w+=*src_pos;
 			src_pos++;
 		}
 	}
 
-	if (*src_pos != '\0') { //we don't want to skip the eof and run off into random memory
+	if (*src_pos != '\0') { // we don't want to skip the eof and run off into random memory
+		if (*src_pos == '"') { src_pos++; }
 		src_pos++;
 	}
 
@@ -82,11 +83,11 @@ std::string get_word() {
 }
 
 void f_dolit() {
-	//push current_xt val to stack (is the address of the string / value of word)
+	// push current_xt val to stack (is the address of the string / value of word)
 	ds.push(current_xt->val);
 }
 
-xt make_lit_xt(size_t w) {
+xt make_lit_xt(cell_t w) {
 	xt new_xt;
 	new_xt.val = w;
 	new_xt.code = f_dolit;
@@ -96,17 +97,17 @@ xt make_lit_xt(size_t w) {
 
 void compile(std::string w) {
 	if (w[0] == '"') {
-		//string, currently this fucks up with compiling multi word strings!
+		// we are reading a string, not a normal word
 		w.erase(remove( w.begin(), w.end(), '\"' ),w.end());
 		std::string *temp_string = new std::string;
 		*temp_string = w;
-		code.push_back(make_lit_xt((size_t)temp_string));
+		code.push_back(make_lit_xt((cell_t)temp_string));
 	}
 	else if ((current_xt=find(macros, w))) {
-		current_xt->code();
+		current_xt->code(); // if it's immediate we run it
 	}
 	else if ((current_xt=find(dictionary, w))) {
-		code.push_back(*current_xt);
+		code.push_back(*current_xt); // if it's not immediate we compile it
 	}
 	else {
 		char *end;
@@ -124,15 +125,14 @@ void interpret_word(std::string w) {
 	if (compile_mode) { return compile(w); }
 
 	if (w[0] == '"') {
-		//string
+		// string
 		w.erase(remove( w.begin(), w.end(), '\"' ),w.end());
 		std::string *temp_string = new std::string;
 		*temp_string = w;
-		ds.push((size_t)temp_string);
-		//std::cout << "string:" + w << std::endl;
+		ds.push((cell_t)temp_string);
 	}
 	else if ((current_xt=find(dictionary, w))) {
-		//xt in dict, run function
+		// xt in dict, run function
 		current_xt->code();
 	}
 	else {
@@ -153,8 +153,6 @@ void interpret() {
 	while (*src_pos != '\0')
 	{
 		w = get_word();
-
-		//std::cout << w << " : " << compile_mode << std::endl;
 		interpret_word(w);
 	}
 }
@@ -178,19 +176,49 @@ xt *add_macro(std::string name, void (*code)(void)) {
 }
 
 void f_add() {
-	size_t v1 = ds.top();
+	cell_t v1 = ds.top();
 	ds.pop();
-	size_t v2 = ds.top();
+	cell_t v2 = ds.top();
 	ds.pop();
 	ds.push(v1 + v2);
 }
 
-void f_mult() {
-	size_t v1 = ds.top();
+void f_sub() {
+	cell_t v1 = ds.top();
 	ds.pop();
-	size_t v2 = ds.top();
+	cell_t v2 = ds.top();
+	ds.pop();
+	ds.push(v2 - v1);
+}
+
+void f_mult() {
+	cell_t v1 = ds.top();
+	ds.pop();
+	cell_t v2 = ds.top();
 	ds.pop();
 	ds.push(v1 * v2);
+}
+
+void f_div() {
+	cell_t v1 = ds.top();
+	ds.pop();
+	cell_t v2 = ds.top();
+	ds.pop();
+	ds.push(v2 / v1);
+}
+
+void f_dup() {
+	ds.push(ds.top());
+}
+
+void f_swap() {
+	cell_t top_val = ds.top();
+	ds.pop();
+	cell_t second_val = ds.top();
+	ds.pop();
+
+	ds.push(top_val);
+	ds.push(second_val);
 }
 
 void f_dot() {
@@ -208,57 +236,110 @@ void f_colon() {
 	definition_name = get_word();
 }
 
-//function assigned to colon definitions, runs the xts in the data section
-void f_docolon() {
+void f_showstack() {
+	std::stack<cell_t> s = ds;
+	
+	while(!s.empty())
+	{
+	    cell_t w = s.top();
+	    std::cout << w << std::endl;
+	    s.pop();
+	}
+}
 
+// function assigned to colon definitions, runs the xts in the data section
+void f_docolon() {
 	for (xt foo: current_xt->data) {
 		foo.code();
 	}
-	//interpret current_xt data section here...
 }
 
 void f_semicolon() {
 	xt *new_word = add_word(definition_name, f_docolon);
 
-	//need to set data section here
+	// need to set data section here
 	new_word->data = code;
 	code.clear();
 
-	//exit compiling
+	// exit compiling
 	compile_mode = false;
 }
 
+void f_exit() {
+	exit(EXIT_SUCCESS);
+}
+
+// shows the words of a function, allows easier understanding of code at runtime
+void f_dis() {
+	std::string func_name = *(std::string*)(ds.top());
+	xt *func = find(dictionary, func_name);
+
+	if (func) {
+		if (func->code == f_docolon) {
+			std::cout << ": " << func_name << " ";
+
+			for (xt foo: func->data) {
+				if (foo.code != f_dolit) {
+					std::cout << foo.name << " ";
+				}
+				else {
+					std::cout << foo.val << " ";
+				}	
+			}
+			std::cout << ";" << std::endl;
+		}
+		else {
+			std::cout << "<builtin>" << std::endl;
+		}
+	}
+	else {
+		std::cout << "<unknown word>" << std::endl;
+	}
+	ds.pop();
+}
+
 void load_primitives() {
+	// Arithmetic
 	add_word("+", f_add);
+	add_word("-", f_sub);
 	add_word("*", f_mult);
+	add_word("/", f_div);
+
+	// Stack Manipulation
+	add_word("dup", f_dup);
+	add_word("swap", f_swap);
+	
+	// IO
 	add_word(".", f_dot);
+	add_word("ss", f_showstack);
 	add_word("print", f_print);
+
+	// Core
 	add_word(":", f_colon);
-	add_macro(";", f_semicolon); //need to make this a macro!!!
+	add_macro(";", f_semicolon);
+	
+	// System
+	add_word("dis", f_dis);
+	add_word("exit", f_exit);
+	add_word("quit", f_exit);
 }
 
 int main() {
-	//src = "219 2 + . \"foo\" print";
-	//src = "2 2 + . \"foo\" print";
-	//src = ": +2 2 + ; 10 +2 .";
-	//src = ": DOUBLE 2 * ; 10 DOUBLE .";
-
+	std::cout << "  _____ _____ __  __ _____  _      ______ ______ ____  _____ _______ _    _ " << std::endl;
+	std::cout << " / ____|_   _|  \\/  |  __ \\| |    |  ____|  ____/ __ \\|  __ \\__   __| |  | |" << std::endl;
+ 	std::cout << "| (___   | | | \\  / | |__) | |    | |__  | |__ | |  | | |__) | | |  | |__| |" << std::endl;
+ 	std::cout << " \\___ \\  | | | |\\/| |  ___/| |    |  __| |  __|| |  | |  _  /  | |  |  __  |" << std::endl;
+ 	std::cout << " ____) |_| |_| |  | | |    | |____| |____| |   | |__| | | \\ \\  | |  | |  | |" << std::endl;
+ 	std::cout << "|_____/|_____|_|  |_|_|    |______|______|_|    \\____/|_|  \\_\\ |_|  |_|  |_|" << std::endl << std::endl;
+                                                                             
 	load_primitives();
 
 	while (true) {
 		src = "";
+		std::cout << "> ";
 		std::getline(std::cin, src);
-		//std::cout << src << std::endl;
 		interpret();
 	}
-	/*
-	std::vector<std::string> words = str_split(code);
-
-	for (std::string s : words) {
-		interpret(s);
-		//std::cout << s << std::endl;
-	}
-	*/
 
 	return 0;
 }
